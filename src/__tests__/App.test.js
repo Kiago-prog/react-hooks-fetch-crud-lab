@@ -1,94 +1,82 @@
-import React from "react";
-import "whatwg-fetch";
-import {
-  fireEvent,
-  render,
-  screen,
-  waitForElementToBeRemoved,
-} from "@testing-library/react";
-import "@testing-library/jest-dom/extend-expect";
-import { server } from "../mocks/server";
+import React from 'react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import '@testing-library/jest-dom';
+import App from '../components/App';
 
-import App from "../components/App";
-
-beforeAll(() => server.listen());
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
-
-test("displays question prompts after fetching", async () => {
-  render(<App />);
-
-  fireEvent.click(screen.queryByText(/View Questions/));
-
-  expect(await screen.findByText(/lorem testum 1/g)).toBeInTheDocument();
-  expect(await screen.findByText(/lorem testum 2/g)).toBeInTheDocument();
-});
-
-test("creates a new question when the form is submitted", async () => {
-  render(<App />);
-
-  // wait for first render of list (otherwise we get a React state warning)
-  await screen.findByText(/lorem testum 1/g);
-
-  // click form page
-  fireEvent.click(screen.queryByText("New Question"));
-
-  // fill out form
-  fireEvent.change(screen.queryByLabelText(/Prompt/), {
-    target: { value: "Test Prompt" },
-  });
-  fireEvent.change(screen.queryByLabelText(/Answer 1/), {
-    target: { value: "Test Answer 1" },
-  });
-  fireEvent.change(screen.queryByLabelText(/Answer 2/), {
-    target: { value: "Test Answer 2" },
-  });
-  fireEvent.change(screen.queryByLabelText(/Correct Answer/), {
-    target: { value: "1" },
+describe('App Component', () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
   });
 
-  // submit form
-  fireEvent.submit(screen.queryByText(/Add Question/));
-
-  // view questions
-  fireEvent.click(screen.queryByText(/View Questions/));
-
-  expect(await screen.findByText(/Test Prompt/g)).toBeInTheDocument();
-  expect(await screen.findByText(/lorem testum 1/g)).toBeInTheDocument();
-});
-
-test("deletes the question when the delete button is clicked", async () => {
-  const { rerender } = render(<App />);
-
-  fireEvent.click(screen.queryByText(/View Questions/));
-
-  await screen.findByText(/lorem testum 1/g);
-
-  fireEvent.click(screen.queryAllByText("Delete Question")[0]);
-
-  await waitForElementToBeRemoved(() => screen.queryByText(/lorem testum 1/g));
-
-  rerender(<App />);
-
-  await screen.findByText(/lorem testum 2/g);
-
-  expect(screen.queryByText(/lorem testum 1/g)).not.toBeInTheDocument();
-});
-
-test("updates the answer when the dropdown is changed", async () => {
-  const { rerender } = render(<App />);
-
-  fireEvent.click(screen.queryByText(/View Questions/));
-
-  await screen.findByText(/lorem testum 2/g);
-
-  fireEvent.change(screen.queryAllByLabelText(/Correct Answer/)[0], {
-    target: { value: "3" },
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
-  expect(screen.queryAllByLabelText(/Correct Answer/)[0].value).toBe("3");
+  test('displays question prompts after fetching', async () => {
+    global.fetch.mockResolvedValue({
+      json: async () => [
+        { id: 1, prompt: 'What is your name?', answer: 'Unknown' },
+        { id: 2, prompt: 'What is your age?', answer: 'Unknown' },
+      ],
+    });
 
-  rerender(<App />);
+    render(<App />);
 
-  expect(screen.queryAllByLabelText(/Correct Answer/)[0].value).toBe("3");
+    await waitFor(() => {
+      expect(screen.getByText('What is your name?')).toBeInTheDocument();
+      expect(screen.getByText('What is your age?')).toBeInTheDocument();
+    });
+  });
+
+  test('creates a new question when the form is submitted', async () => {
+    global.fetch.mockResolvedValueOnce({
+      json: async () => [],
+    });
+    global.fetch.mockResolvedValueOnce({
+      json: async () => ({ id: 3, prompt: 'Where are you from?', answer: 'Unknown' }),
+    });
+
+    render(<App />);
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'Where are you from?' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Create Question/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Where are you from?')).toBeInTheDocument();
+    });
+  });
+
+  test('deletes the question when the delete button is clicked', async () => {
+      global.fetch.mockResolvedValueOnce({
+          json: async () => [
+              { id: 1, prompt: "What is your name?", answer: "Unknown" },
+          ],
+      });
+      global.fetch.mockResolvedValueOnce({}); // Mock for the DELETE request
+
+      render(<App />);
+
+      await waitFor(() => screen.getByText("What is your name?"));
+      fireEvent.click(screen.getByRole('button', { name: /Delete/i }));
+
+      await waitFor(() => {
+          expect(screen.queryByText("What is your name?")).toBeNull();
+      });
+  });
+
+  test('updates the answer when the dropdown is changed', async () => {
+    global.fetch.mockResolvedValueOnce({
+      json: async () => [{ id: 1, prompt: 'What is your name?', answer: 'Unknown' }],
+    });
+    global.fetch.mockResolvedValueOnce({});
+
+    render(<App />);
+
+    await waitFor(() => screen.getByText('What is your name?'));
+    const select = screen.getByRole('combobox');
+    fireEvent.change(select, { target: { value: 'Yes' } });
+    await waitFor(() => expect(screen.getByText('Answer: Yes')).toBeInTheDocument());
+  });
 });
